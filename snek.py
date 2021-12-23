@@ -35,7 +35,7 @@ def builtin_asm(args):
     write_to_file(f"asm volatile (\"{args[0].value}\")")
 
 # self explanatory
-builtin_funcs = {"__writemem" : builtin_writemem, "asm" : builtin_asm}
+builtin_funcs = {"__builtin_write_mem" : builtin_writemem, "asm" : builtin_asm}
 
 def codegen_func_call(call):
 
@@ -91,14 +91,31 @@ def codegen_expr(node):
                     write_to_file(f"\'{node.value}\'")
             else:
                 write_to_file(f"{node.value}")
+
         case ast.Name:
             write_to_file(f"{node.id}")
+        
+        case ast.List:
+            write_to_file("{")
+            for i in node.elts:
+                codegen_expr(i)
+                if i != node.elts[-1]:
+                    write_to_file(",")
+            write_to_file("}")
+
         case ast.BinOp:
             codegen_expr(node.left)
             codegen_op_from_node(node.op)
             codegen_expr(node.right)
+
         case ast.Call:
             codegen_func_call(node)
+
+        case ast.Subscript:
+            codegen_expr(node.value)
+            write_to_file("[")
+            codegen_expr(node.slice)
+            write_to_file("]")
 
 def codegen_subscript(node, name=""):
     match node.value.id:
@@ -172,6 +189,30 @@ def codegen_assign(node):
 
     codegen_expr(node.value)
 
+def codegen_for(node):
+    write_to_file("for (")
+    if isinstance(node.iter, ast.Call):
+        if node.iter.func.id == "range":
+                step = 1
+
+                if len(node.iter.args) == 3:
+                    step = node.iter.args[2].value
+
+                write_to_file(f"int {node.target.id} = ")
+                codegen_expr(node.iter.args[0])
+                write_to_file(f"; {node.target.id} < ")
+                codegen_expr(node.iter.args[1])
+                write_to_file(f";{node.target.id} += {step})\n{{\n")
+        else:
+                codegen_func_call(node.iter)
+    else:
+           write_to_file(f"int __list_iter = 0; __list_iter < sizeof({node.iter.id})/sizeof(*{node.iter.id}); __list_iter++)\n{{\n typeof(*{node.iter.id}) {node.target.id} = {node.iter.id}[__list_iter];\n")
+
+
+    for i in node.body:
+        codegen_node(i)
+
+    write_to_file("}\n")
 
 # Yea so this codegens a node apparently
 # It checks for the type of node and calls the appropriate function
@@ -184,6 +225,13 @@ def codegen_node(node):
             codegen_assign(node)
             write_to_file(";\n")
 
+        case ast.AugAssign:
+            codegen_expr(node.target)
+            write_to_file(" ")
+            codegen_op_from_node(node.op)
+            write_to_file("= ")
+            codegen_expr(node.value)
+            write_to_file(";\n")
         case ast.Expr:
             codegen_expr(node.value)
             write_to_file(";\n")
@@ -192,6 +240,10 @@ def codegen_node(node):
             write_to_file(f"return ")
             codegen_expr(node.value)
             write_to_file(";\n")
+
+        case ast.For:
+            codegen_for(node)
+
         case ast.Import:
             write_to_file(f"#include \"{node.names[0].name}.h\"\n")
 
@@ -219,7 +271,7 @@ def main():
 
     parsed = parse(data)
 
-    codegen(parsed)
+    codegen(parsed, True)
 
 
 if __name__ == "__main__":
