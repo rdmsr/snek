@@ -4,45 +4,99 @@ import sys
 import ast
 
 
-output = ""
 
+# lol global variables go brrr
+output = None
+counter = 0
+
+# Why does this even exist?
 def parse(string):
     return ast.parse(string)
 
+# moment
 def write_to_file(str):
-    assert(output != "")
+    global output
 
-    with open(output, 'a') as file:
-        file.write(str)
+    output.write(str)
 
-counter = 0
+# Python cannot do pointers, so I have a builtin function to write to memory
+def builtin_writemem(args):
+    str = f"volatile unsigned char *buf{counter} = (unsigned char*){args[0].value};\n *buf{counter} = {args[0].value}"
+    counter += 1
+    return str
+
+# Output asm C-style
+def builtin_asm(args):
+    return f"asm volatile (\"{args[0].value}\")"
+
+# self explanatory
+builtin_funcs = [(builtin_writemem, "__writemem"), (builtin_asm, "asm")]
 
 def codegen_func_call(call):
     global counter
 
-    if call.func.id != "__writemem" and call.func.id != "asm":
+    # If function is not builtin, don't do special stuff, just codegen it
+    if call.func.id not in builtin_funcs:
         write_to_file(f"{call.func.id}(")
         i = 0
         for arg in call.args:
-            if arg.value[0].isalpha():
-                write_to_file(f"\"{arg.value}\"")
+            codegen_expr(arg)
 
             if i != len(call.args)-1 :
                 write_to_file(",")
+
             i += 1
         write_to_file(")")
-    elif call.func.id == "__writemem":
-        write_to_file(f"volatile unsigned char *buf{counter} = (unsigned char*){call.args[0].value};\n *buf{counter} = {call.args[1].value}")
-        counter += 1
-
-    elif call.func.id == "asm":
-        write_to_file(f"asm volatile (\"{call.args[0].value}\")")
+   
+   # Else, codegen its special string
+    else:
+        builtin_funcs[call.func.id](call.args)
 
 
+def codegen_op_from_node(op):
+    if isinstance(op, ast.Add):
+        write_to_file("+")
+    elif isinstance(op, ast.Sub):
+        write_to_file("-")
+    elif isinstance(op, ast.Mult):
+        write_to_file("*")
+    elif isinstance(op, ast.Div):
+        write_to_file("/")
+    elif isinstance(op, ast.Mod):
+        write_to_file("%")
+    elif isinstance(op, ast.LShift):
+        write_to_file("<<")
+    elif isinstance(op, ast.RShift):
+        write_to_file(">>")
+    elif isinstance(op, ast.BitOr):
+        write_to_file("|")
+    elif isinstance(op, ast.BitXor):
+        write_to_file("^")
+    elif isinstance(op, ast.BitAnd):
+        write_to_file("&")
+    else:
+        print("Unknown operator")
+
+# An expr is basically something that can be evaluated
+# So like 10 is an expression, so is 10+10 and function calls are too
 def codegen_expr(node):
-    if(isinstance(node.value, ast.Call)):
-        codegen_func_call(node.value)
 
+    if isinstance(node, ast.Constant):
+        write_to_file(f"{node.value}")
+   
+    elif isinstance(node, ast.Name):
+        write_to_file(f"{node.id}")
+    # BinOperators
+    elif (isinstance(node, ast.BinOp)):
+        codegen_expr(node.left)
+        codegen_op_from_node(node.op)
+        codegen_expr(node.right)
+
+    elif isinstance(node, ast.Call):
+            codegen_func_call(node)
+
+# Well that's pretty much self explanatory
+# God I'm overcommenting, am I?
 def py_type_to_c_type(t):
     if t == "int":
         return "int"
@@ -57,6 +111,8 @@ def py_type_to_c_type(t):
     else:
         return "void"
 
+# Codegen parameters
+# Basically you put a comma if the parameter isn't the last one
 def codegen_args(args):
     i = 0
     for arg in args:
@@ -66,25 +122,37 @@ def codegen_args(args):
         i += 1
 
 def codegen_func_def(node):
-    if isinstance(node.returns, ast.Constant):
+    # If you don't know the return type, it's void
+    if isinstance(node.returns, ast.Constant) or node.returns is None:
         write_to_file(f"void {node.name}(")
+
+    # Else, it's specified
     else:
         write_to_file(f"{py_type_to_c_type(node.returns.id)} {node.name}(")
+    # Codegen parameters
     codegen_args(node.args.args)
-    write_to_file(")\n")
-    write_to_file("{\n")
+
+    # Start of function body
+    write_to_file(")\n{\n")
+
+    # Iterate through each node of the body and codegen it
     for i in node.body:
         codegen_node(i)
-    write_to_file("}")
+
+    # End of function body
+    write_to_file("}\n")
 
     pass
 
+# Yea so this codegens a node apparently
+# It checks for the type of node and calls the appropriate function
 def codegen_node(node):
     if isinstance(node, ast.Expr):
         codegen_expr(node)
 
     if isinstance(node, ast.Return):
-        write_to_file(f"return {node.value.value}")
+        write_to_file(f"return ")
+        codegen_expr(node.value)
 
     if isinstance(node, ast.Expr) or isinstance(node, ast.Return):
         write_to_file(";\n")
@@ -99,18 +167,18 @@ def codegen(parsed):
         codegen_node(node)
 
 
+# Main function of the program, idk why I did that but it's here
 def main():
     global output
     data = ""
 
     if len(sys.argv) >= 3:
-        output = sys.argv[2]
+        output = open(sys.argv[2], 'w')
 
-        with open(sys.argv[1], 'r') as file:
-            data = file.read()
-
+        with open(sys.argv[1], 'r') as input:
+            data = input.read()
     else:
-        print("No file specified")
+        print(f"Command syntax is {sys.argv[0]} [FILE] [OUTPUT]")
         sys.exit(1)
 
     parsed = parse(data)

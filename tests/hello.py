@@ -1,4 +1,3 @@
 
-def main(argc: int, argv: str) -> int:
+def main(argc: int, argv: str):
     print("Hello, world!")
-    return 0
