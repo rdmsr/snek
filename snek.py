@@ -2,6 +2,7 @@
 
 import sys
 import ast
+import os
 
 # lol global variables go brrr
 output = None
@@ -12,10 +13,10 @@ def parse(string):
     return ast.parse(string)
 
 # moment
-def write_to_file(str):
+def write_to_file(string):
     global output
 
-    output.write(str)
+    output.write(string)
 
 # Python cannot do pointers, so I have a builtin function to write to memory
 def builtin_writemem(args):
@@ -196,30 +197,94 @@ def codegen_node(node):
             write_to_file(f"#include \"{node.names[0].name}.h\"\n")
 
 # Generate C code from python AST
-def codegen(parsed, debug=False):
+def codegen(parsed, debug=False, stdlib=True):
     if debug:
         print(ast.dump(parsed))
+    if stdlib:
+        # XXX: Put code here you want in the top of the file
+        write_to_file("""
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#define True 1
+#define False 0
+#ifdef NULL
+#undef NULL
+#define NULL (*void)0
+#endif
+#define None NULL
+#define print printf
+""")
     for node in parsed.body:
         codegen_node(node)
 
+
+# Makes a default output file for da code
+def gen_output_file(filename):
+    # 1. Disect the filepath to get the filename
+    # one = filename.split("/")[-1]
+
+    # 2. Remove last extension
+    # two = ".".join(one.split(".")[0 : -1])
+
+    # 3. Add '.c'
+    # three = two + ".c"
+
+    # Combine all to get this malformed mess of code
+    return ".".join(filename.split("/")[-1].split(".")[0 : 1]) + ".c"
+
+# Also self-explanitory
+def help_menu():
+    print("--nostdlib:       Nothing standard is included, you're on your own.")
+    print("--help:           Brings this help menu.")
+    print("-o [output file]  Specifies the output filename.")
 
 # Main function of the program, idk why I did that but it's here
 def main():
     global output
     data = ""
+    stdlib = True
 
-    if len(sys.argv) >= 3:
-        output = open(sys.argv[2], 'w')
+    if len(sys.argv) >= 2:
+        # Detect help menu
+        if "--help" in sys.argv:
+            print(f"Syntax: {sys.argv[0]} [args] [input file]")
+            help_menu()
+            exit(1)
 
-        with open(sys.argv[1], 'r') as input:
-            data = input.read()
+        # Detect '-o'
+        if "-o" in sys.argv:
+            # Do some black magic frickery
+            tmp_index = sys.argv.index("-o")
+            try:
+                output_filename = sys.argv[tmp_index + 1]
+                output = open(output_filename, "w")
+            except IndexError:
+                print("Warning: Cannot find output filename, ignoring '-o'")
+
+        # Detect '--nostdlib'
+        if "--nostdlib" in sys.argv:
+            stdlib = False
+        else: 
+            output = open(gen_output_file(sys.argv[-1]), 'w')
+
+        try:
+            with open(sys.argv[-1], 'r') as input_:
+                data = input_.read()
+        except FileNotFoundError:
+            output.close()
+            os.remove(output.name)
+
+            print(f"Error: File not found: {sys.argv[-1]}")
+            print(f"Syntax: {sys.argv[0]} [args] [input file]")
+            exit(1)
     else:
-        print(f"Command syntax is {sys.argv[0]} [FILE] [OUTPUT]")
-        sys.exit(1)
+        print(f"Syntax: {sys.argv[0]} [args] [input file]")
+        exit(1)
 
     parsed = parse(data)
 
-    codegen(parsed)
+    codegen(parsed, stdlib = stdlib)
 
 
 if __name__ == "__main__":
