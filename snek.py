@@ -19,19 +19,25 @@ def write_to_file(str):
 
 # Python cannot do pointers, so I have a builtin function to write to memory
 def builtin_writemem(args):
-    str = f"volatile unsigned char *buf{counter} = (unsigned char*){args[0].value};\n *buf{counter} = {args[0].value}"
+    global counter
+
+    write_to_file(f"volatile {py_type_to_c_type(args[2].id)} *buf{counter} = ({py_type_to_c_type(args[2].id)}*)")
+    codegen_expr(args[0])
+    write_to_file(";\n")
+    write_to_file(f"*buf{counter} = ");
+    codegen_expr(args[1])
+    
     counter += 1
     return str
 
 # Output asm C-style
 def builtin_asm(args):
-    return f"asm volatile (\"{args[0].value}\")"
+    write_to_file(f"asm volatile (\"{args[0].value}\")")
 
 # self explanatory
-builtin_funcs = [(builtin_writemem, "__writemem"), (builtin_asm, "asm")]
+builtin_funcs = {"__writemem" : builtin_writemem, "asm" : builtin_asm}
 
 def codegen_func_call(call):
-    global counter
 
     # If function is not builtin, don't do special stuff, just codegen it
     if call.func.id not in builtin_funcs:
@@ -78,7 +84,13 @@ def codegen_op_from_node(op):
 def codegen_expr(node):
     match node.__class__:
         case ast.Constant:
-            write_to_file(f"{node.value}")
+            if type(node.value) == str:
+                if len(node.value) > 1:
+                    write_to_file(f"\"{node.value}\"")
+                else:
+                    write_to_file(f"\'{node.value}\'")
+            else:
+                write_to_file(f"{node.value}")
         case ast.Name:
             write_to_file(f"{node.id}")
         case ast.BinOp:
@@ -103,20 +115,31 @@ def py_type_to_c_type(t):
             return "float"
         case "str":
             return "char*"
+        case "char":
+            return "char"
         case "bool":
             return "int"
+        case "u16":
+            return "uint16_t"
+        case "u32":
+            return "uint32_t"
+        case "u64":
+            return "uint64_t"
         case _:
             return "void"
+
+def codegen_annotation(ann, arg):
+    match ann.__class__:
+        case ast.Name:
+            return write_to_file(py_type_to_c_type(ann.id) + " " + arg)
+        case ast.Subscript:
+            return codegen_subscript(ann, arg)
 
 # Codegen parameters
 # Basically you put a comma if the parameter isn't the last one
 def codegen_args(args):
     for arg in args:
-        if isinstance(arg.annotation, ast.Name):
-            write_to_file(f"{py_type_to_c_type(arg.annotation.id)} {arg.arg}")
-
-        elif isinstance(arg.annotation, ast.Subscript):
-                codegen_subscript(arg.annotation, arg.arg)
+        codegen_annotation(arg.annotation, arg.arg)
 
         if arg != args[-1]:
             write_to_file(",")
@@ -142,7 +165,13 @@ def codegen_func_def(node):
     # End of function body
     write_to_file("}\n")
 
-    pass
+def codegen_assign(node):
+    codegen_annotation(node.annotation, node.target.id)
+
+    write_to_file(f" = ")
+
+    codegen_expr(node.value)
+
 
 # Yea so this codegens a node apparently
 # It checks for the type of node and calls the appropriate function
@@ -150,17 +179,26 @@ def codegen_node(node):
     match node.__class__:
         case ast.FunctionDef:
             codegen_func_def(node)
+
+        case ast.AnnAssign:
+            codegen_assign(node)
+            write_to_file(";\n")
+
         case ast.Expr:
             codegen_expr(node.value)
             write_to_file(";\n")
+
         case ast.Return:
             write_to_file(f"return ")
             codegen_expr(node.value)
             write_to_file(";\n")
+        case ast.Import:
+            write_to_file(f"#include \"{node.names[0].name}.h\"\n")
 
 # Generate C code from python AST
-def codegen(parsed):
-    print(ast.dump(parsed))
+def codegen(parsed, debug=False):
+    if debug:
+        print(ast.dump(parsed))
     for node in parsed.body:
         codegen_node(node)
 
