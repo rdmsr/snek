@@ -1,9 +1,7 @@
-#!/usr/bin/python3
+#!/usr/bin/python3.10
 
 import sys
 import ast
-
-
 
 # lol global variables go brrr
 output = None
@@ -38,14 +36,13 @@ def codegen_func_call(call):
     # If function is not builtin, don't do special stuff, just codegen it
     if call.func.id not in builtin_funcs:
         write_to_file(f"{call.func.id}(")
-        i = 0
+
         for arg in call.args:
             codegen_expr(arg)
 
-            if i != len(call.args)-1 :
+            if arg != call.args[-1]:
                 write_to_file(",")
 
-            i += 1
         write_to_file(")")
    
    # Else, codegen its special string
@@ -54,72 +51,75 @@ def codegen_func_call(call):
 
 
 def codegen_op_from_node(op):
-    if isinstance(op, ast.Add):
-        write_to_file("+")
-    elif isinstance(op, ast.Sub):
-        write_to_file("-")
-    elif isinstance(op, ast.Mult):
-        write_to_file("*")
-    elif isinstance(op, ast.Div):
-        write_to_file("/")
-    elif isinstance(op, ast.Mod):
-        write_to_file("%")
-    elif isinstance(op, ast.LShift):
-        write_to_file("<<")
-    elif isinstance(op, ast.RShift):
-        write_to_file(">>")
-    elif isinstance(op, ast.BitOr):
-        write_to_file("|")
-    elif isinstance(op, ast.BitXor):
-        write_to_file("^")
-    elif isinstance(op, ast.BitAnd):
-        write_to_file("&")
-    else:
-        print("Unknown operator")
+    match op.__class__:
+        case ast.Add:
+            write_to_file("+")
+        case ast.Sub:
+            write_to_file("-")
+        case ast.Mult:
+            write_to_file("*")
+        case ast.Div:
+            write_to_file("/")
+        case ast.Mod:
+            write_to_file("%")
+        case ast.LShift:
+            write_to_file("<<")
+        case ast.RShift:
+            write_to_file(">>")
+        case ast.BitOr:
+            write_to_file("|")
+        case ast.BitXor:
+            write_to_file("^")
+        case ast.BitAnd:
+            write_to_file("&")
 
 # An expr is basically something that can be evaluated
 # So like 10 is an expression, so is 10+10 and function calls are too
 def codegen_expr(node):
-
-    if isinstance(node, ast.Constant):
-        write_to_file(f"{node.value}")
-   
-    elif isinstance(node, ast.Name):
-        write_to_file(f"{node.id}")
-    # BinOperators
-    elif (isinstance(node, ast.BinOp)):
-        codegen_expr(node.left)
-        codegen_op_from_node(node.op)
-        codegen_expr(node.right)
-
-    elif isinstance(node, ast.Call):
+    match node.__class__:
+        case ast.Constant:
+            write_to_file(f"{node.value}")
+        case ast.Name:
+            write_to_file(f"{node.id}")
+        case ast.BinOp:
+            codegen_expr(node.left)
+            codegen_op_from_node(node.op)
+            codegen_expr(node.right)
+        case ast.Call:
             codegen_func_call(node)
+
+def codegen_subscript(node, name=""):
+    match node.value.id:
+        case "list":
+            write_to_file(f"{py_type_to_c_type(node.slice.id)} {name}[]")
 
 # Well that's pretty much self explanatory
 # God I'm overcommenting, am I?
 def py_type_to_c_type(t):
-    if t == "int":
-        return "int"
-    elif t == "float":
-        return "float"
-    elif t == "str":
-        return "char*"
-    elif t == "bool":
-        return "bool"
-    elif t == "None":
-        return "void"
-    else:
-        return "void"
+    match t:
+        case "int":
+            return "int"
+        case "float":
+            return "float"
+        case "str":
+            return "char*"
+        case "bool":
+            return "int"
+        case _:
+            return "void"
 
 # Codegen parameters
 # Basically you put a comma if the parameter isn't the last one
 def codegen_args(args):
-    i = 0
     for arg in args:
-        write_to_file(f"{py_type_to_c_type(arg.annotation.id)} {arg.arg}")
-        if i != len(args)-1 :
+        if isinstance(arg.annotation, ast.Name):
+            write_to_file(f"{py_type_to_c_type(arg.annotation.id)} {arg.arg}")
+
+        elif isinstance(arg.annotation, ast.Subscript):
+                codegen_subscript(arg.annotation, arg.arg)
+
+        if arg != args[-1]:
             write_to_file(",")
-        i += 1
 
 def codegen_func_def(node):
     # If you don't know the return type, it's void
@@ -147,18 +147,16 @@ def codegen_func_def(node):
 # Yea so this codegens a node apparently
 # It checks for the type of node and calls the appropriate function
 def codegen_node(node):
-    if isinstance(node, ast.Expr):
-        codegen_expr(node)
-
-    if isinstance(node, ast.Return):
-        write_to_file(f"return ")
-        codegen_expr(node.value)
-
-    if isinstance(node, ast.Expr) or isinstance(node, ast.Return):
-        write_to_file(";\n")
-
-    if isinstance(node, ast.FunctionDef):
-        codegen_func_def(node)
+    match node.__class__:
+        case ast.FunctionDef:
+            codegen_func_def(node)
+        case ast.Expr:
+            codegen_expr(node.value)
+            write_to_file(";\n")
+        case ast.Return:
+            write_to_file(f"return ")
+            codegen_expr(node.value)
+            write_to_file(";\n")
 
 # Generate C code from python AST
 def codegen(parsed):
@@ -186,7 +184,8 @@ def main():
     codegen(parsed)
 
 
-main()
+if __name__ == "__main__":
+    main()
 
     
 

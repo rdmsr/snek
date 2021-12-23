@@ -1,3 +1,3 @@
 
-def main(argc: int, argv: str):
+def main(argc: int, argv: list[str]):
     print("Hello, world!")
