@@ -86,7 +86,9 @@ def codegen_expr(node):
         case ast.Constant:
             if type(node.value) == str:
                 if len(node.value) > 1:
-                    write_to_file(f"\"{node.value}\"")
+                    # Replace newlines with string containing '\n'
+                    new_str = node.value.replace("\n", "\\n")
+                    write_to_file(f"\"{new_str}\"")
                 else:
                     write_to_file(f"\'{node.value}\'")
             else:

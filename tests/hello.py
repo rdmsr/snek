@@ -1,3 +1,5 @@
+import stdio
 
 def main(argc: int, argv: list[str]):
-    print("Hello, world!")
+    printf("Hello, world!\n")
+    
